@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowRight, Sparkles, Check, ChevronDown } from 'lucide-react';
+import { Download, Sparkles, Check, ChevronDown, Github } from 'lucide-react';
 
 export function HeroSection() {
 
@@ -53,13 +53,11 @@ export function HeroSection() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-10"
           >
             <a
-              href="https://github.com/egorceo/lipilot"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/lipilot-v2.0.zip"
               className="group px-8 py-4 bg-gradient-to-r from-lipilot-cyan to-blue-500 hover:from-blue-500 hover:to-lipilot-cyan text-white font-semibold rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-lipilot-cyan/25 hover:shadow-lipilot-cyan/40"
             >
-              Install from GitHub
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <Download className="w-5 h-5" />
+              Download v2.0
             </a>
             <a
               href="#install"
@@ -67,6 +65,15 @@ export function HeroSection() {
             >
               <ChevronDown className="w-5 h-5 text-lipilot-cyan" />
               How to Install
+            </a>
+            <a
+              href="https://github.com/egorceo/lipilot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-8 py-4 glass border border-white/20 hover:border-lipilot-cyan/50 text-white font-semibold rounded-xl transition-all flex items-center gap-2"
+            >
+              <Github className="w-5 h-5 text-lipilot-cyan" />
+              GitHub
             </a>
           </motion.div>
 

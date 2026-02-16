@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowRight, Sparkles, Star } from 'lucide-react';
+import { Download, Sparkles, Star, Github } from 'lucide-react';
 
 export function CTASection() {
 
@@ -37,15 +37,22 @@ export function CTASection() {
               Install LiPilot in 2 minutes. Free forever.
             </p>
 
-            <div className="flex items-center justify-center">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <a
+                href="/lipilot-v2.0.zip"
+                className="group px-8 py-4 bg-gradient-to-r from-lipilot-cyan to-blue-500 hover:from-blue-500 hover:to-lipilot-cyan text-white font-semibold rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-lipilot-cyan/25 hover:shadow-lipilot-cyan/40"
+              >
+                <Download className="w-5 h-5" />
+                Download v2.0
+              </a>
               <a
                 href="https://github.com/egorceo/lipilot"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group px-8 py-4 bg-gradient-to-r from-lipilot-cyan to-blue-500 hover:from-blue-500 hover:to-lipilot-cyan text-white font-semibold rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-lipilot-cyan/25 hover:shadow-lipilot-cyan/40"
+                className="px-8 py-4 glass border border-white/20 hover:border-lipilot-cyan/50 text-white font-semibold rounded-xl transition-all flex items-center gap-2"
               >
-                Get it on GitHub
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                <Github className="w-5 h-5 text-lipilot-cyan" />
+                View on GitHub
               </a>
             </div>
 

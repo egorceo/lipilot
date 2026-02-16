@@ -19,9 +19,20 @@ LiPilot is a free, open-source Chrome extension that generates smart, context-aw
 
 ---
 
-## Installation (Developer Mode)
+## Quick Install (Ready-to-Use)
 
-### Option 1: Git Clone
+1. **Download** the latest build: [lipilot-v2.0.zip](https://lipilot.com/lipilot-v2.0.zip)
+2. **Unzip** the archive to any folder
+3. Open `chrome://extensions` in your browser
+4. Enable **Developer mode** (toggle in the top-right corner)
+5. Click **Load unpacked** and select the unzipped folder
+6. **Done!** Click the LiPilot icon → Settings to configure your API key
+
+Works on **Chrome, Brave, Edge, Arc**, and any Chromium-based browser.
+
+---
+
+## Build from Source (Developer Mode)
 
 ```bash
 git clone https://github.com/egorceo/lipilot.git
@@ -30,21 +41,7 @@ npm install
 npm run build
 ```
 
-### Option 2: Download ZIP
-
-1. Go to [github.com/egorceo/lipilot](https://github.com/egorceo/lipilot)
-2. Click **Code** → **Download ZIP**
-3. Extract the archive
-
-### Load into Chrome
-
-1. Open `chrome://extensions` in your browser
-2. Enable **Developer mode** (toggle in the top-right corner)
-3. Click **Load unpacked**
-4. Select the `lipilot` folder (or the `dist` folder if you built from source)
-5. The LiPilot icon appears in your toolbar
-
-Works on **Chrome, Brave, Edge, Arc**, and any Chromium-based browser.
+Then load the `dist/` folder as an unpacked extension in `chrome://extensions`.
 
 ---
 

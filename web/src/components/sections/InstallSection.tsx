@@ -5,32 +5,32 @@ const steps = [
   {
     icon: Download,
     title: 'Download',
-    description: 'Go to github.com/egorceo/lipilot → Click "Code" → "Download ZIP"',
+    description: 'Click "Download v2.0" above or get the ZIP from the GitHub releases page',
   },
   {
     icon: FolderOpen,
     title: 'Unzip',
-    description: 'Extract the downloaded archive to any folder',
+    description: 'Extract the downloaded lipilot-v2.0.zip to any folder on your computer',
   },
   {
     icon: Globe,
     title: 'Open Extensions',
-    description: 'In Chrome, go to chrome://extensions',
+    description: 'In Chrome, type chrome://extensions in the address bar and press Enter',
   },
   {
     icon: ToggleRight,
     title: 'Developer Mode',
-    description: 'Enable "Developer mode" toggle in the top-right corner',
+    description: 'Enable "Developer mode" toggle in the top-right corner of the extensions page',
   },
   {
     icon: Upload,
     title: 'Load Extension',
-    description: 'Click "Load unpacked" and select the lipilot folder',
+    description: 'Click "Load unpacked" and select the unzipped folder with the extension files',
   },
   {
     icon: CheckCircle,
-    title: 'Done!',
-    description: 'LiPilot icon appears in your toolbar. Open any LinkedIn post and start!',
+    title: 'Configure & Go!',
+    description: 'Click the LiPilot icon → Settings. Choose your LLM provider, enter API key, describe your persona. Done!',
   },
 ];
 
