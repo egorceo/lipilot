@@ -1,0 +1,31 @@
+{
+  "name": "lipilot",
+  "version": "2.0.0",
+  "description": "Free, open-source AI-powered LinkedIn comment assistant. Multi-provider LLM support (OpenAI, Anthropic, Gemini).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "zip": "npm run build && node scripts/create-zip.cjs"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@types/chrome": "^0.0.287",
+    "@types/react": "^18.3.14",
+    "@types/react-dom": "^18.3.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "archiver": "^7.0.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}
+

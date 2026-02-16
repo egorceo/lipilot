@@ -1,0 +1,16 @@
+/* Content script styles - scoped to avoid LinkedIn conflicts */
+/* These will be injected into Shadow DOM */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:host {
+  all: initial;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
