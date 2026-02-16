@@ -61,9 +61,9 @@ LiPilot supports three LLM providers. Bring your own API key:
 
 | Provider | Models |
 |----------|--------|
-| **OpenAI** | GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-3.5 Turbo |
-| **Anthropic** | Claude Sonnet 4, Claude Haiku 3.5, Claude Opus 4 |
-| **Google Gemini** | Gemini 2.0 Flash, Gemini 2.5 Flash, Gemini 2.5 Pro |
+| **OpenAI** | GPT-5.2, GPT-5.1, GPT-4o Mini, GPT-4o |
+| **Anthropic** | Claude Opus 4.6, Claude Sonnet 4.5, Claude Haiku 4.5 |
+| **Google Gemini** | Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 2.5 Flash Lite |
 
 ---
 

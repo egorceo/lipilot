@@ -365,13 +365,17 @@ function openMessagingPanel() {
 function findClosestCommentBox(postElement: Element): HTMLElement | null {
   // First, look for a comment box within the post element's context
   const SELECTORS = [
-    '.comments-comment-box__form-container .ql-editor',
-    '.comments-comment-texteditor .ql-editor',
+    '[role="textbox"][contenteditable="true"]',
+    '[contenteditable="true"][aria-label*="comment" i]',
+    '[contenteditable="true"][aria-label*="reply" i]',
+    '[aria-placeholder="Add a comment…"]',
+    '[aria-placeholder="Add a comment..."]',
     '[data-placeholder="Add a comment…"]',
     '[data-placeholder="Add a comment..."]',
-    '.editor-content [contenteditable="true"]',
     '.ql-editor[contenteditable="true"]',
-    '[role="textbox"][contenteditable="true"]',
+    '.comments-comment-box__form-container .ql-editor',
+    '.comments-comment-texteditor .ql-editor',
+    '.editor-content [contenteditable="true"]',
   ];
 
   // Look within the post element first
@@ -551,37 +555,37 @@ function hideSelectionButton() {
 // Find LinkedIn post containers and inject buttons
 function injectAIButtons() {
   const postContainers = getPostContainers();
-  
+
   postContainers.forEach((post) => {
     const htmlPost = post as HTMLElement;
-    
+
     // Skip if already processed
     if (htmlPost.dataset.laiProcessed) return;
     htmlPost.dataset.laiProcessed = 'true';
-    
+
     // Find the social action bar for the MAIN post (not inside comments)
     const socialBar = getSocialActionBar(post);
-    
+
     if (socialBar) {
       // Make sure this social bar is NOT inside a comment
-      const isInsideComment = socialBar.closest('.comments-comment-item, .comments-comment-entity, [class*="comments-comment-item"], .comments-comments-list');
-      if (isInsideComment) return; // Skip - will be handled by injectCommentButtons
-      
-      // Find parent container
-      const parent = socialBar.closest('.feed-shared-social-action-bar') || 
-                     socialBar.parentElement;
-      
-      // Check if button already exists in this parent
-      if (parent && !parent.querySelector('.lai-ai-button')) {
+      // For new LinkedIn: check if there's a Reply button nearby (comments have Reply, main post doesn't)
+      const hasReplyButton = Array.from(socialBar.querySelectorAll('button')).some(
+        btn => btn.textContent?.trim() === 'Reply'
+      );
+      const isInsideOldComment = socialBar.closest('.comments-comment-item, .comments-comment-entity, [class*="comments-comment-item"], .comments-comments-list');
+      if (isInsideOldComment || hasReplyButton) return; // Skip - will be handled by injectCommentButtons
+
+      // Check if button already exists in this action bar
+      if (!socialBar.querySelector('.lai-ai-button')) {
         // Create button and pass the button element itself as context
         const button = createAIButton(() => {
           // When clicked, pass the button element so we can detect context
           handleAIButtonClick(button, false);
         });
-        parent.appendChild(button);
+        socialBar.appendChild(button);
       }
     }
-    
+
     // Also inject buttons into COMMENT action bars
     injectCommentButtons(post);
   });
@@ -589,97 +593,150 @@ function injectAIButtons() {
 
 // Click the Reply button to open the reply input
 function clickReplyButton(commentElement: Element): void {
+  // Strategy 1: Find by text content (works for both old and new LinkedIn)
+  const buttons = commentElement.querySelectorAll('button, span[role="button"]');
+  for (const btn of buttons) {
+    if (btn.textContent?.trim() === 'Reply') {
+      (btn as HTMLElement).click();
+      console.log('[LinkedIn AI] Clicked Reply button (by text)');
+      return;
+    }
+  }
+
+  // Strategy 2: Old LinkedIn selectors
   const replyButton = commentElement.querySelector(
     'button[aria-label*="Reply"], ' +
     'button[aria-label*="reply"], ' +
     '[class*="reply-action"], ' +
-    '.comments-comment-social-bar__reply-action, ' +
-    'span.comments-comment-social-bar__reply-action-text'
-  )?.closest('button') || commentElement.querySelector('button:has(span:contains("Reply"))');
-  
+    '.comments-comment-social-bar__reply-action'
+  )?.closest('button');
+
   if (replyButton) {
     (replyButton as HTMLElement).click();
-    console.log('[LinkedIn AI] Clicked Reply button');
-  } else {
-    // Try finding by text content
-    const buttons = commentElement.querySelectorAll('button, span[role="button"]');
-    for (const btn of buttons) {
-      if (btn.textContent?.toLowerCase().includes('reply')) {
-        (btn as HTMLElement).click();
-        console.log('[LinkedIn AI] Clicked Reply button (by text)');
-        return;
-      }
-    }
+    console.log('[LinkedIn AI] Clicked Reply button (by selector)');
   }
 }
 
 // Inject AI buttons into comment action bars
 function injectCommentButtons(postContainer: Element) {
-  // Find all comments in this post (multiple selector patterns for feed and detail views)
-  const commentSelectors = [
-    '.comments-comment-item',
-    '.comments-comment-entity', 
-    'article[class*="comments-comment"]',
-    '[data-urn*="comment"]',
-    '.feed-shared-update-v2__comments-container .comments-comment-item',
-  ];
-  
-  const comments = postContainer.querySelectorAll(commentSelectors.join(', '));
-  
-  comments.forEach((comment) => {
-    const htmlComment = comment as HTMLElement;
-    
-    // Skip if already processed
-    if (htmlComment.dataset.laiCommentProcessed) return;
-    htmlComment.dataset.laiCommentProcessed = 'true';
-    
-    // Find the comment's action bar (where Like/Reply buttons are) - multiple selectors
+  // Strategy 1: Old LinkedIn selectors
+  const oldComments = postContainer.querySelectorAll(
+    '.comments-comment-item, .comments-comment-entity, article[class*="comments-comment"]'
+  );
+
+  if (oldComments.length > 0) {
+    oldComments.forEach((comment) => {
+      injectButtonIntoComment(comment);
+    });
+    return;
+  }
+
+  // Strategy 2: New LinkedIn - find comments by Reply buttons
+  const replyButtons = Array.from(postContainer.querySelectorAll('button')).filter(btn => {
+    return btn.textContent?.trim() === 'Reply';
+  });
+
+  for (const replyBtn of replyButtons) {
+    // Find the comment container (walk up to find element with profile link)
+    let commentElement: Element | null = replyBtn.parentElement;
+    for (let i = 0; i < 6; i++) {
+      if (!commentElement) break;
+      const hasProfileLink = commentElement.querySelector('a[href*="/in/"]');
+      const hasCommentary = commentElement.querySelector('[data-view-name="feed-commentary"]');
+      if (hasProfileLink && (hasCommentary || commentElement.textContent!.length > 20)) {
+        injectButtonIntoComment(commentElement, replyBtn);
+        break;
+      }
+      commentElement = commentElement.parentElement;
+    }
+  }
+}
+
+// Inject AI button into a single comment element
+function injectButtonIntoComment(comment: Element, replyBtn?: Element) {
+  const htmlComment = comment as HTMLElement;
+
+  // Skip if already processed
+  if (htmlComment.dataset.laiCommentProcessed) return;
+  htmlComment.dataset.laiCommentProcessed = 'true';
+
+  // Find the action bar - the container that holds Like/Reply buttons
+  let commentActionBar: Element | null = null;
+
+  // Strategy 1: Find Reply button's parent (this is the action bar)
+  if (replyBtn) {
+    commentActionBar = replyBtn.parentElement;
+    // Walk up if needed to find a container that has both Like and Reply
+    let candidate = replyBtn.parentElement;
+    for (let i = 0; i < 3; i++) {
+      if (!candidate) break;
+      const btns = candidate.querySelectorAll('button');
+      let hasLike = false;
+      let hasReply = false;
+      btns.forEach(b => {
+        const t = b.textContent?.trim();
+        if (t === 'Like') hasLike = true;
+        if (t === 'Reply') hasReply = true;
+      });
+      if (hasLike && hasReply) {
+        commentActionBar = candidate;
+        break;
+      }
+      candidate = candidate.parentElement;
+    }
+  }
+
+  // Strategy 2: Old LinkedIn selectors
+  if (!commentActionBar) {
     const actionBarSelectors = [
       '.comments-comment-social-bar',
       '[class*="comment-social-bar"]',
       '.comments-comment-item__action-bar',
-      '.social-actions-button',
     ];
-    
-    let commentActionBar: Element | null = null;
     for (const selector of actionBarSelectors) {
       commentActionBar = comment.querySelector(selector);
       if (commentActionBar) break;
     }
-    
-    // Fallback: find the area with Like/Reply buttons
-    if (!commentActionBar) {
-      const likeButton = comment.querySelector('button[aria-label*="Like"], button[aria-label*="like"]');
-      const replyButton = comment.querySelector('button[aria-label*="Reply"], button[aria-label*="reply"]');
-      commentActionBar = likeButton?.parentElement || replyButton?.parentElement;
-    }
-    
-    if (commentActionBar) {
-      // Check if button already exists in this specific action bar
-      if (!commentActionBar.querySelector('.lai-ai-button')) {
-        // Create button that knows it's in a comment context
-        const button = createAIButton(() => {
-          // First, click Reply to open the reply input
-          clickReplyButton(comment);
-          // Small delay to let the reply box appear
-          setTimeout(() => {
-            handleAIButtonClick(button, true);
-          }, 300);
-        });
-        // Style it slightly smaller for comments
-        button.style.width = '28px';
-        button.style.height = '28px';
-        button.style.marginLeft = '4px';
-        commentActionBar.appendChild(button);
+  }
+
+  // Strategy 3: Find by Like/Reply button presence
+  if (!commentActionBar) {
+    const buttons = comment.querySelectorAll('button');
+    for (const btn of buttons) {
+      const text = btn.textContent?.trim();
+      if (text === 'Reply' || text === 'Like') {
+        commentActionBar = btn.parentElement;
+        break;
       }
     }
-  });
+  }
+
+  if (commentActionBar) {
+    // Check if button already exists
+    if (!commentActionBar.querySelector('.lai-ai-button')) {
+      const button = createAIButton(() => {
+        // First, click Reply to open the reply input
+        clickReplyButton(comment);
+        // Small delay to let the reply box appear
+        setTimeout(() => {
+          handleAIButtonClick(button, true);
+        }, 300);
+      });
+      // Style it slightly smaller for comments
+      button.style.width = '28px';
+      button.style.height = '28px';
+      button.style.marginLeft = '4px';
+      commentActionBar.appendChild(button);
+    }
+  }
 }
 
 // Inject buttons into newly loaded comments (called by observer)
 function injectButtonsIntoNewComments() {
-  // Find all posts in the feed
-  const posts = document.querySelectorAll('.feed-shared-update-v2, .occludable-update, [data-urn*="activity"]');
+  // Find all posts in the feed (new and old LinkedIn)
+  const posts = document.querySelectorAll(
+    '[data-view-name="feed-full-update"], .feed-shared-update-v2, .occludable-update, [data-urn*="activity"]'
+  );
   posts.forEach((post) => {
     injectCommentButtons(post);
   });
@@ -912,21 +969,28 @@ function init() {
     let shouldCheckPostModal = false;
     mutations.forEach((mutation) => {
       if (mutation.addedNodes.length > 0) {
-        // Check if any added nodes contain comments or posts
         mutation.addedNodes.forEach((node) => {
           if (node instanceof Element) {
-            if (node.matches?.('.comments-comment-item, .comments-comment-entity, [class*="comment"], .feed-shared-update-v2') ||
-                node.querySelector?.('.comments-comment-item, .comments-comment-entity, [class*="comment"]')) {
+            // New LinkedIn: check for data-view-name attributes
+            if (node.getAttribute?.('data-view-name')?.includes('feed') ||
+                node.querySelector?.('[data-view-name="feed-full-update"]') ||
+                node.querySelector?.('[data-view-name="feed-comment-button"]') ||
+                node.querySelector?.('button')) {
               shouldInject = true;
             }
-            // Check for post modal - more aggressive
-            if (node.matches?.('.share-box-feed-entry__modal, .share-box__modal, [role="dialog"], .artdeco-modal, .share-box, [class*="share-box"], [class*="share-modal"]') ||
-                node.querySelector?.('.share-box-feed-entry__modal, .share-box__modal, [role="dialog"][aria-label*="post"], .artdeco-modal, .share-box')) {
+            // Old LinkedIn selectors
+            if (node.matches?.('.comments-comment-item, .comments-comment-entity, [class*="comment"], .feed-shared-update-v2') ||
+                node.querySelector?.('.comments-comment-item, .comments-comment-entity')) {
+              shouldInject = true;
+            }
+            // Check for post modal
+            if (node.matches?.('[role="dialog"], .artdeco-modal, [class*="share-box"], [class*="share-modal"]') ||
+                node.querySelector?.('[role="dialog"][aria-label*="post" i], .artdeco-modal, [class*="share-box"]')) {
               shouldCheckPostModal = true;
             }
           }
         });
-        // Also trigger for any DOM changes (comments loading, etc.)
+        // Also trigger for any significant DOM changes
         shouldInject = true;
       }
     });
@@ -934,7 +998,6 @@ function init() {
       debouncedInject();
     }
     if (shouldCheckPostModal) {
-      // Immediate check for post modal
       setTimeout(() => injectPostAssistantButton(), 100);
       setTimeout(() => injectPostAssistantButton(), 500);
       setTimeout(() => injectPostAssistantButton(), 1000);

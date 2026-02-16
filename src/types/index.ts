@@ -6,19 +6,20 @@ export type LLMProvider = 'openai' | 'anthropic' | 'gemini';
 
 export const PROVIDER_MODELS: Record<LLMProvider, { value: string; label: string }[]> = {
   openai: [
-    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-5.2', label: 'GPT-5.2' },
+    { value: 'gpt-5.1', label: 'GPT-5.1' },
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    { value: 'gpt-4o', label: 'GPT-4o' },
   ],
   anthropic: [
+    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
     { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
     { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   ],
   gemini: [
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-    { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
-    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
   ],
 };
 
