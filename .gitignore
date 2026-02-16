@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 dist-zip/
+web/dist/
+server-deploy/
+lipilot-server-deploy.zip
 
 # IDE
 .idea/

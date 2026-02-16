@@ -6,6 +6,20 @@ LiPilot is a free, open-source Chrome extension that generates smart, context-aw
 
 ---
 
+## Screenshots
+
+| AI Comment Generation | DM Co-pilot | Post Assistant |
+|:---:|:---:|:---:|
+| ![Comments](screenshots/lipilot-comments.png) | ![Messages](screenshots/lipilot-messages.png) | ![Post](screenshots/lipilot-post.png) |
+| Generate context-aware comments with scoring | Smart replies for LinkedIn conversations | Create posts with templates and tone control |
+
+| Extension Popup | Settings — Provider & Persona | Settings — Preferences |
+|:---:|:---:|:---:|
+| ![Extension](screenshots/lipilot-extension.png) | ![Settings 1](screenshots/lipilot-settings-1.png) | ![Settings 2](screenshots/lipilot-settings-2.png) |
+| Quick status and navigation | Choose LLM provider, model, and persona | Language, emojis, image analysis, service offer |
+
+---
+
 ## Features
 
 - **Learns Your Voice** — LiPilot observes how you edit its suggestions and builds a profile of your communication style. Over time, comments sound more and more like you.
