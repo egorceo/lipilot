@@ -20,7 +20,7 @@ const MAX_PERSONA_OBSERVATIONS = 20;
 const DEFAULT_SETTINGS: UserSettings = {
   llmProvider: 'openai',
   apiKey: '',
-  model: 'gpt-4o',
+  model: 'gpt-4o-mini',
   persona: '',
   enableEmojis: false,
   languageLevel: 'fluent',
@@ -83,7 +83,7 @@ export async function getSettings(): Promise<UserSettings> {
         resolve({
           llmProvider: result[STORAGE_KEYS.LLM_PROVIDER] || 'openai',
           apiKey: result[STORAGE_KEYS.API_KEY] || '',
-          model: result[STORAGE_KEYS.MODEL] || 'gpt-4o',
+          model: result[STORAGE_KEYS.MODEL] || 'gpt-4o-mini',
           persona: result[STORAGE_KEYS.PERSONA] || '',
           enableEmojis: result[STORAGE_KEYS.ENABLE_EMOJIS] ?? false,
           languageLevel: result[STORAGE_KEYS.LANGUAGE_LEVEL] || 'fluent',

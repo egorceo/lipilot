@@ -167,48 +167,121 @@ export function getSocialActionBar(postElement: Element): Element | null {
 // ======================== Post Content Extraction ========================
 
 /**
+ * Clean up extracted text: remove "see more" buttons, extra whitespace, etc.
+ */
+function cleanExtractedText(text: string): string {
+  let cleaned = text.trim();
+  // Remove "see more/less" buttons in various languages
+  cleaned = cleaned.replace(/…?see (more|less)/gi, '');
+  cleaned = cleaned.replace(/…?\s*more\s*$/gi, '');
+  cleaned = cleaned.replace(/…?voir (plus|moins)/gi, '');
+  cleaned = cleaned.replace(/…?mehr (anzeigen|ausblenden)/gi, '');
+  cleaned = cleaned.replace(/…?ещё/gi, '');
+  cleaned = cleaned.replace(/…?больше/gi, '');
+  cleaned = cleaned.replace(/…?mostrar (más|menos)/gi, '');
+  // Remove reaction counts like "5,432 reactions"
+  cleaned = cleaned.replace(/[\d,.]+ (reactions?|likes?|comments?|reposts?|shares?)/gi, '');
+  // Remove "Like Comment Repost Send" action bar text that may leak in
+  cleaned = cleaned.replace(/\b(Like|Comment|Repost|Send|Share|Reply)\b\s*/g, (match, word) => {
+    // Only remove if it looks like an action button (standalone word)
+    if (/^\s*$/.test(cleaned.substring(cleaned.indexOf(match) - 5, cleaned.indexOf(match)))) {
+      return '';
+    }
+    return match;
+  });
+  // Normalize whitespace
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
+}
+
+/**
  * Extract post content text
  */
 export function extractPostContentSync(postElement: Element): string {
   // Strategy 1: New LinkedIn - find feed-commentary elements
+  // The main post text is in elements with data-view-name="feed-commentary"
+  // But we need to get ONLY the post text, not comment text
   const commentaryElements = postElement.querySelectorAll('[data-view-name="feed-commentary"]');
   if (commentaryElements.length > 0) {
-    // Collect all text from commentary elements (they may be split across p tags and links)
-    const texts: string[] = [];
-    // Find the parent that contains all commentary - it's usually a container div
-    // Get the first commentary element and find its closest container
-    const firstCommentary = commentaryElements[0];
-    let contentContainer = firstCommentary.parentElement;
+    // The FIRST feed-commentary is usually the main post text
+    // Subsequent ones may be inside comments - we need to filter
+    const mainPostCommentary: Element[] = [];
 
-    // Walk up to find a container that has all commentary children
-    while (contentContainer && contentContainer !== postElement) {
-      const innerCommentary = contentContainer.querySelectorAll('[data-view-name="feed-commentary"]');
-      if (innerCommentary.length >= commentaryElements.length) {
-        break;
+    for (const el of commentaryElements) {
+      // Check if this commentary is inside a comment (has Reply button as sibling)
+      let isInsideComment = false;
+      let parent = el.parentElement;
+      for (let i = 0; i < 8; i++) {
+        if (!parent || parent === postElement) break;
+        const replyBtn = Array.from(parent.querySelectorAll('button')).find(
+          b => b.textContent?.trim() === 'Reply'
+        );
+        if (replyBtn) {
+          isInsideComment = true;
+          break;
+        }
+        parent = parent.parentElement;
       }
-      contentContainer = contentContainer.parentElement;
+
+      if (!isInsideComment) {
+        mainPostCommentary.push(el);
+      }
     }
 
-    if (contentContainer && contentContainer !== postElement) {
-      let text = contentContainer.textContent?.trim() || '';
-      // Clean up
-      text = text.replace(/…?see (more|less)/gi, '').trim();
-      text = text.replace(/…?\s*more\s*$/gi, '').trim();
-      text = text.replace(/…?voir (plus|moins)/gi, '').trim();
-      text = text.replace(/…?ещё/gi, '').trim();
-      if (text.length > 10) return text;
-    }
+    if (mainPostCommentary.length > 0) {
+      // Try to find the container that holds the main post text
+      const firstCommentary = mainPostCommentary[0];
+      let contentContainer = firstCommentary.parentElement;
 
-    // Fallback: concatenate all commentary text
-    commentaryElements.forEach(el => {
-      const t = el.textContent?.trim();
-      if (t) texts.push(t);
-    });
-    const fullText = texts.join(' ').trim();
-    if (fullText.length > 10) return fullText;
+      // Walk up to find a container that wraps all post commentary
+      while (contentContainer && contentContainer !== postElement) {
+        const innerCommentary = contentContainer.querySelectorAll('[data-view-name="feed-commentary"]');
+        // Check that this container doesn't also contain comment text
+        const hasReplyButton = Array.from(contentContainer.querySelectorAll('button')).some(
+          b => b.textContent?.trim() === 'Reply'
+        );
+        if (innerCommentary.length >= mainPostCommentary.length && !hasReplyButton) {
+          break;
+        }
+        contentContainer = contentContainer.parentElement;
+      }
+
+      if (contentContainer && contentContainer !== postElement) {
+        const text = cleanExtractedText(contentContainer.textContent || '');
+        if (text.length > 10) return text;
+      }
+
+      // Fallback: concatenate all main post commentary text
+      const texts: string[] = [];
+      mainPostCommentary.forEach(el => {
+        const t = el.textContent?.trim();
+        if (t) texts.push(t);
+      });
+      const fullText = cleanExtractedText(texts.join('\n'));
+      if (fullText.length > 10) return fullText;
+    }
   }
 
-  // Strategy 2: Old LinkedIn selectors
+  // Strategy 2: Find the main content area by structure
+  // LinkedIn posts typically have: header (author) -> content -> media -> action bar
+  // The content is usually the second major section
+  const actionBar = getSocialActionBar(postElement);
+  if (actionBar) {
+    // Walk backwards from the action bar to find text content
+    let sibling = actionBar.previousElementSibling;
+    while (sibling) {
+      const text = cleanExtractedText(sibling.textContent || '');
+      // Skip media containers (usually have very little text but images)
+      const hasImages = sibling.querySelectorAll('img').length > 0;
+      const textLength = text.length;
+      if (textLength > 30 && (!hasImages || textLength > 100)) {
+        return text;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+  }
+
+  // Strategy 3: Old LinkedIn selectors
   const contentElement = queryWithFallback(postElement, [
     '[class*="update-components-text"]',
     '.feed-shared-update-v2__description',
@@ -219,12 +292,31 @@ export function extractPostContentSync(postElement: Element): string {
   ]);
 
   if (contentElement) {
-    let text = contentElement.textContent?.trim() || '';
-    text = text.replace(/…?see (more|less)/gi, '').trim();
-    text = text.replace(/…?voir (plus|moins)/gi, '').trim();
-    text = text.replace(/…?ещё/gi, '').trim();
+    const text = cleanExtractedText(contentElement.textContent || '');
     if (text.length > 10) return text;
   }
+
+  // Strategy 4: Brute force - find the largest text block in the post
+  // that is NOT in the action bar area and NOT in comments
+  let bestText = '';
+  let bestLength = 0;
+  const children = postElement.children;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    // Skip action bar and comments area
+    if (child === actionBar || child.contains(actionBar as Node)) continue;
+    const hasReplyButton = Array.from(child.querySelectorAll('button')).some(
+      b => b.textContent?.trim() === 'Reply'
+    );
+    if (hasReplyButton) continue;
+
+    const text = cleanExtractedText(child.textContent || '');
+    if (text.length > bestLength && text.length > 30) {
+      bestText = text;
+      bestLength = text.length;
+    }
+  }
+  if (bestText) return bestText;
 
   return '';
 }
@@ -238,32 +330,66 @@ export async function extractPostContent(postElement: Element): Promise<string> 
 }
 
 /**
- * Expand "see more" button to reveal full content
+ * Expand "see more" button to reveal full content.
+ * This is critical for getting the full post text before analysis.
  */
 export function expandSeeMore(postElement: Element): boolean {
-  // Strategy 1: Find buttons with "more" text
-  const allButtons = postElement.querySelectorAll('button, span[role="button"]');
   let clicked = false;
 
-  allButtons.forEach((button) => {
+  // Strategy 1: Find buttons/spans with "more" text (works for all LinkedIn versions & languages)
+  const allClickables = postElement.querySelectorAll('button, span[role="button"], a[role="button"], span.see-more, a.see-more');
+
+  allClickables.forEach((button) => {
     const text = button.textContent?.trim().toLowerCase() || '';
+    const ariaLabel = button.getAttribute('aria-label')?.toLowerCase() || '';
+
     if (
       text === 'more' ||
       text === '...more' ||
       text === '…more' ||
+      text === '…ещё' ||
+      text === 'ещё' ||
       text.includes('see more') ||
       text.includes('show more') ||
       text.includes('voir plus') ||
       text.includes('mehr anzeigen') ||
-      text.includes('ещё') ||
-      text.includes('больше')
+      text.includes('mostrar más') ||
+      text.includes('больше') ||
+      ariaLabel.includes('see more') ||
+      ariaLabel.includes('show more') ||
+      ariaLabel.includes('expand')
     ) {
-      (button as HTMLElement).click();
-      clicked = true;
+      // Make sure this "more" button is for the POST content, not for comments
+      // Post "see more" is before the action bar; comment "see more" is after Reply buttons
+      const isInComment = Array.from(button.parentElement?.querySelectorAll('button') || []).some(
+        b => b.textContent?.trim() === 'Reply' && b !== button
+      );
+      if (!isInComment) {
+        (button as HTMLElement).click();
+        clicked = true;
+        console.log('[LinkedIn AI] Expanded "see more" text');
+      }
     }
   });
 
-  // Strategy 2: Old selectors
+  // Strategy 2: New LinkedIn - find truncated text containers with ellipsis
+  if (!clicked) {
+    const textElements = postElement.querySelectorAll('[data-view-name="feed-commentary"]');
+    for (const el of textElements) {
+      const parent = el.parentElement;
+      if (parent) {
+        const seeMoreBtn = parent.querySelector('button, span[role="button"]');
+        if (seeMoreBtn && (seeMoreBtn.textContent?.trim().toLowerCase().includes('more') ||
+            seeMoreBtn.textContent?.trim().toLowerCase().includes('ещё'))) {
+          (seeMoreBtn as HTMLElement).click();
+          clicked = true;
+          console.log('[LinkedIn AI] Expanded truncated commentary');
+        }
+      }
+    }
+  }
+
+  // Strategy 3: Old selectors
   if (!clicked) {
     const oldButtons = queryAllWithFallback(postElement, [
       '.feed-shared-inline-show-more-text__see-more-less-toggle',
@@ -287,7 +413,13 @@ export function expandSeeMore(postElement: Element): boolean {
 export async function expandSeeMoreAndWait(postElement: Element): Promise<void> {
   const clicked = expandSeeMore(postElement);
   if (clicked) {
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // Wait longer for LinkedIn to actually expand the text (500ms)
+    await new Promise(resolve => setTimeout(resolve, 500));
+    // Try expanding again in case there's nested "see more"
+    const clickedAgain = expandSeeMore(postElement);
+    if (clickedAgain) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
   }
 }
 
@@ -658,21 +790,64 @@ function extractCommentData(commentElement: Element): CommentData | null {
 
     const authorName = extractCommentAuthorName(commentElement);
 
-    // Get comment content
-    const commentaryEl = commentElement.querySelector('[data-view-name="feed-commentary"]');
+    // Get comment content - try multiple strategies
     let content = '';
-    if (commentaryEl) {
-      // Get the container that holds all commentary for this comment
-      let container = commentaryEl.parentElement;
-      if (container) {
-        content = container.textContent?.trim() || commentaryEl.textContent?.trim() || '';
-      } else {
-        content = commentaryEl.textContent?.trim() || '';
+
+    // Strategy 1: New LinkedIn - feed-commentary elements
+    const commentaryEls = commentElement.querySelectorAll('[data-view-name="feed-commentary"]');
+    if (commentaryEls.length > 0) {
+      const texts: string[] = [];
+      commentaryEls.forEach(el => {
+        const t = el.textContent?.trim();
+        if (t) texts.push(t);
+      });
+      content = texts.join(' ').trim();
+    }
+
+    // Strategy 2: Find text blocks that aren't author name or action buttons
+    if (!content || content.length < 5) {
+      // Walk through children looking for text content
+      const textParts: string[] = [];
+      const walker = document.createTreeWalker(
+        commentElement,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode: (node) => {
+            const parent = node.parentElement;
+            if (!parent) return NodeFilter.FILTER_REJECT;
+            // Skip buttons (Like, Reply, etc.)
+            if (parent.tagName === 'BUTTON') return NodeFilter.FILTER_REJECT;
+            // Skip links to profiles (author name)
+            if (parent.closest('a[href*="/in/"]') && !parent.closest('[data-view-name="feed-commentary"]')) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            // Skip timestamps
+            if (parent.closest('time')) return NodeFilter.FILTER_REJECT;
+            const text = node.textContent?.trim() || '';
+            if (text.length < 3) return NodeFilter.FILTER_REJECT;
+            // Skip action button text
+            if (['Like', 'Reply', 'Report', '1st', '2nd', '3rd', '•'].includes(text)) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+      let node;
+      while (node = walker.nextNode()) {
+        const text = node.textContent?.trim() || '';
+        if (text.length >= 3 && text !== authorName) {
+          textParts.push(text);
+        }
+      }
+      if (textParts.length > 0) {
+        // The longest text part is most likely the comment content
+        content = textParts.sort((a, b) => b.length - a.length)[0];
       }
     }
 
-    // Fallback to old selectors
-    if (!content) {
+    // Strategy 3: Old LinkedIn selectors
+    if (!content || content.length < 5) {
       const contentElement = queryWithFallback(commentElement, [
         '.comments-comment-item__main-content',
         '[class*="comment-item__main-content"]',
@@ -683,12 +858,11 @@ function extractCommentData(commentElement: Element): CommentData | null {
     }
 
     // Clean up
-    content = content.replace(/…?see (more|less)/gi, '').trim();
-    content = content.replace(/…?voir (plus|moins)/gi, '').trim();
+    content = cleanExtractedText(content);
 
     if (!content || content.length < 5) return null;
 
-    // Check if this is a reply
+    // Check if this is a reply (nested comment)
     const isReply = !!commentElement.closest('[class*="replies-list"]') ||
                     !!commentElement.parentElement?.closest('[class*="replies"]');
 
@@ -774,7 +948,8 @@ export function scrapeExistingComments(postElement: Element, limit: number = 5):
 // ======================== Reply Context Detection ========================
 
 /**
- * Detect if we're in a reply thread context
+ * Detect if we're in a reply thread context.
+ * Enhanced for new LinkedIn where replies may not have specific CSS classes.
  */
 export function detectReplyContext(postElement: Element): { isReply: boolean; parentComment: CommentData | null; threadParticipants: string[] } {
   const activeCommentBox = findActiveCommentBox();
@@ -783,45 +958,80 @@ export function detectReplyContext(postElement: Element): { isReply: boolean; pa
     return { isReply: false, parentComment: null, threadParticipants: [] };
   }
 
-  // Check if the comment box is inside a replies section
-  const repliesContainer = activeCommentBox.closest('[class*="replies-list"], [class*="replies"]');
+  // Check if the comment box is inside a replies section (old LinkedIn)
+  let repliesContainer = activeCommentBox.closest('[class*="replies-list"], [class*="replies"]');
 
-  if (!repliesContainer) {
+  // New LinkedIn: check if the comment box has a @mention (indicating reply)
+  const mentionInBox = activeCommentBox.querySelector('a[href*="/in/"], [data-mention]');
+
+  // Also check if the comment box's aria-label/placeholder mentions "reply"
+  const ariaLabel = activeCommentBox.getAttribute('aria-label')?.toLowerCase() || '';
+  const ariaPlaceholder = activeCommentBox.getAttribute('aria-placeholder')?.toLowerCase() || '';
+  const isReplyByAttribute = ariaLabel.includes('reply') || ariaPlaceholder.includes('reply');
+
+  if (!repliesContainer && !mentionInBox && !isReplyByAttribute) {
     return { isReply: false, parentComment: null, threadParticipants: [] };
   }
 
   let parentComment: CommentData | null = null;
   const threadParticipants: string[] = [];
 
-  // Find the parent comment by looking for the closest comment-like container
+  // Find the parent comment
   const commentElements = findCommentElements(postElement);
 
-  // Look for the comment that contains the replies section
-  for (const comment of commentElements) {
-    if (comment.contains(repliesContainer)) {
-      parentComment = extractCommentData(comment);
-      if (parentComment) {
-        threadParticipants.push(parentComment.authorName);
+  // Strategy 1: Look for the comment that contains the replies section
+  if (repliesContainer) {
+    for (const comment of commentElements) {
+      if (comment.contains(repliesContainer)) {
+        parentComment = extractCommentData(comment);
+        if (parentComment) {
+          threadParticipants.push(parentComment.authorName);
+        }
+        break;
       }
-      break;
     }
   }
 
-  // Also check for @mention in the reply box
-  if (!parentComment) {
-    const mentionInBox = activeCommentBox.querySelector('a[href*="/in/"], [data-mention]');
-    if (mentionInBox) {
-      const mentionName = mentionInBox.textContent?.trim();
-      if (mentionName) {
-        for (const comment of commentElements) {
-          const data = extractCommentData(comment);
-          if (data && data.authorName.includes(mentionName.replace('@', ''))) {
-            parentComment = data;
-            threadParticipants.push(data.authorName);
-            break;
-          }
+  // Strategy 2: Find by @mention in the reply box
+  if (!parentComment && mentionInBox) {
+    const mentionName = mentionInBox.textContent?.trim()?.replace('@', '');
+    if (mentionName) {
+      for (const comment of commentElements) {
+        const data = extractCommentData(comment);
+        if (data && data.authorName.toLowerCase().includes(mentionName.toLowerCase())) {
+          parentComment = data;
+          threadParticipants.push(data.authorName);
+          break;
         }
       }
+    }
+  }
+
+  // Strategy 3: The comment box is near a specific comment - find the closest one
+  if (!parentComment) {
+    const boxRect = activeCommentBox.getBoundingClientRect();
+    let closestComment: CommentData | null = null;
+    let closestDist = Infinity;
+
+    for (const comment of commentElements) {
+      const rect = (comment as HTMLElement).getBoundingClientRect();
+      const dist = Math.abs(rect.bottom - boxRect.top);
+      if (dist < closestDist && dist < 200) {
+        closestDist = dist;
+        closestComment = extractCommentData(comment);
+      }
+    }
+    if (closestComment) {
+      parentComment = closestComment;
+      threadParticipants.push(closestComment.authorName);
+    }
+  }
+
+  // Collect all thread participants
+  for (const comment of commentElements) {
+    const data = extractCommentData(comment);
+    if (data && data.authorName !== 'Unknown' && !threadParticipants.includes(data.authorName)) {
+      threadParticipants.push(data.authorName);
     }
   }
 

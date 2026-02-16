@@ -145,34 +145,57 @@ async function handleRefineComment(payload: RefineRequest): Promise<RefineRespon
     return { success: false, error: 'API key not configured. Please add it in the extension settings.' };
   }
 
+  const systemPrompt = `You are a professional LinkedIn comment editor. You edit comments while keeping them natural and human-sounding.
+RULES:
+- Respond with ONLY the edited comment text, nothing else
+- Never use em-dashes (\u2014). Use commas, semicolons, or " - " instead
+- Never wrap the output in quotation marks
+- Keep the same language as the original comment
+- Preserve the same tone and meaning`;
+
   const refinementPrompt = refinementType === 'concise'
-    ? `Make this LinkedIn comment more concise while keeping its impact and meaning. Remove filler words and tighten the prose. Keep it professional and engaging.
+    ? `Make this LinkedIn comment shorter and more concise. Cut filler words, tighten the prose. Keep the core message and impact.
 
-Original comment:
-"${comment}"
+Comment to shorten:
+${comment}
 
-Respond with ONLY the refined comment, nothing else.`
-    : `Rephrase this LinkedIn comment with different wording but keep the same meaning and tone. Make it sound fresh while maintaining professionalism.
+Write ONLY the shortened comment:`
+    : `Rephrase this LinkedIn comment using different words. Keep the same meaning, tone, and length. Make it sound fresh.
 
-Original comment:
-"${comment}"
+Comment to rephrase:
+${comment}
 
-Respond with ONLY the rephrased comment, nothing else.`;
+Write ONLY the rephrased comment:`;
 
-  const result = await callLLM(settings.llmProvider, settings.apiKey, settings.model, {
-    systemPrompt: 'You are a professional writing assistant.',
-    userPrompt: refinementPrompt,
-    jsonMode: false,
-    temperature: 0.7,
-    maxTokens: 300,
-  });
+  try {
+    const result = await callLLM(settings.llmProvider, settings.apiKey, settings.model, {
+      systemPrompt,
+      userPrompt: refinementPrompt,
+      jsonMode: false,
+      temperature: 0.7,
+      maxTokens: 500,
+    });
 
-  if (!result.success) {
-    return { success: false, error: result.error };
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    let cleanedComment = result.content.trim();
+    // Remove any wrapping quotes
+    cleanedComment = cleanedComment.replace(/^["'"'\u201C\u201D]+|["'"'\u201C\u201D]+$/g, '');
+    // Replace em-dashes
+    cleanedComment = cleanedComment.replace(/\u2014/g, ' - ');
+    cleanedComment = cleanedComment.trim();
+
+    if (!cleanedComment || cleanedComment.length < 5) {
+      return { success: false, error: 'Refinement returned empty result. Please try again.' };
+    }
+
+    return { success: true, comment: cleanedComment };
+  } catch (error) {
+    console.error('[LiPilot] Refine error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to refine comment' };
   }
-
-  const cleanedComment = result.content.replace(/^["']|["']$/g, '').trim();
-  return { success: true, comment: cleanedComment };
 }
 
 // ==================== Configuration Check ====================
@@ -317,7 +340,9 @@ RULES:
 5. NO markdown formatting (no **, no ##, no bullet points with -)
 6. Use plain text with line breaks
 7. Make it engaging and shareable
-8. Start with a hook that grabs attention`;
+8. Start with a hook that grabs attention
+9. ABSOLUTELY NO em-dashes (\u2014) or en-dashes (\u2013). Use commas, semicolons, or " - " instead
+10. Match the persona's language and style`;
 
   const toneInstructions: Record<string, string> = {
     'professional': 'Write in a polished, executive tone. Data-driven, strategic insights.',
@@ -346,11 +371,14 @@ Write the post directly. No preamble, no "Here's your post:" prefix.`;
     return { success: false, error: result.error };
   }
 
-  // Clean up markdown artifacts
+  // Clean up markdown artifacts and em-dashes
   let post = result.content.trim();
   post = post.replace(/\*\*/g, '');
   post = post.replace(/^#+\s*/gm, '');
   post = post.replace(/^[-*]\s/gm, '');
+  // Remove em-dashes and en-dashes
+  post = post.replace(/\u2014/g, ' - ');
+  post = post.replace(/\u2013/g, ' - ');
 
   return { success: true, data: { post, originalPost: result.content.trim() } };
 }
@@ -503,10 +531,14 @@ ${languageInstruction}${imageInstruction}${serviceInstruction}${learnedTraitsSec
   const formattingRules = `
 
 STRICT FORMATTING RULES:
-1. **NO Em-Dashes**: Never use long dashes without spaces (word—word). Use a comma, semicolon, or " - " (hyphen with spaces) instead.
+1. **ABSOLUTELY NO EM-DASHES (\u2014)**: NEVER use the long dash character (\u2014) anywhere in ANY comment. This is a hard rule with zero exceptions. Use a comma, semicolon, period, or " - " (hyphen with spaces) instead. Examples:
+   - WRONG: "Great insight\u2014this changes everything"
+   - RIGHT: "Great insight, this changes everything"
+   - RIGHT: "Great insight - this changes everything"
 2. **NO Quotation Marks**: Do not wrap the entire comment in quotation marks. Write the comment as plain text.
 3. **NO Leading Quotes**: Never start a comment with " or ' characters.
-4. **Clean Output**: Each comment should be ready to paste directly - no formatting artifacts.`;
+4. **Clean Output**: Each comment should be ready to paste directly - no formatting artifacts.
+5. **NO En-Dashes (\u2013)**: Also avoid en-dashes. Use " - " (hyphen with spaces) instead.`;
 
   const discussionContext = `
 
@@ -535,7 +567,8 @@ AVOID AT ALL COSTS:
 - Starting with "I"
 - Sycophantic or overly agreeable tone
 - Repeating points already made by other commenters
-- Em-dashes (—) without spaces
+- Em-dashes (\u2014) - NEVER use this character, use commas or " - " instead
+- En-dashes (\u2013) - NEVER use this character either
 - Wrapping comments in quotation marks
 
 Generate exactly 3 DISTINCT comment variations with different approaches/angles.
@@ -927,8 +960,12 @@ function parseComments(content: string): string[] {
 
 function cleanComment(comment: string): string {
   let cleaned = comment.trim();
-  cleaned = cleaned.replace(/^["'"'"]+|["'"'"]+$/g, '');
-  cleaned = cleaned.replace(/—/g, ' - ');
+  // Remove wrapping quotation marks (all types)
+  cleaned = cleaned.replace(/^["'"'\u201C\u201D\u2018\u2019]+|["'"'\u201C\u201D\u2018\u2019]+$/g, '');
+  // Replace em-dashes and en-dashes with " - "
+  cleaned = cleaned.replace(/\u2014/g, ' - ');
+  cleaned = cleaned.replace(/\u2013/g, ' - ');
+  // Fix double spaces from replacements
   cleaned = cleaned.replace(/\s+/g, ' ');
   cleaned = cleaned.trim();
   return cleaned;

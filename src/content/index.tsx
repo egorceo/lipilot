@@ -4,10 +4,10 @@ import { FloatingPanel } from './components/FloatingPanel';
 import { MessagingPanel } from './components/MessagingPanel';
 import { PostAssistantPanel } from './components/PostAssistantPanel';
 import { createAIButton } from './components/AIButton';
-import { 
-  scrapePostData, 
-  getPostContainers, 
-  getSocialActionBar, 
+import {
+  scrapePostData,
+  getPostContainers,
+  getSocialActionBar,
   findActiveCommentBox,
   injectTextIntoCommentBox,
   createPostDataFromSelection,
@@ -15,6 +15,7 @@ import {
   findPostEditor,
   findPostToolbar,
   injectTextIntoPostEditor,
+  expandSeeMore,
 } from './utils/linkedin-selectors';
 import {
   isMessagingPage,
@@ -422,13 +423,23 @@ function openPanelWithScanning(clickedElement: Element, isReplyContext: boolean 
 
   // Scrape the data asynchronously (this now expands "see more" and waits)
   (async () => {
+    // First, immediately expand "see more" to get full post text
+    // Find the main post container
+    const mainPost = clickedElement.closest('[data-view-name="feed-full-update"]') ||
+                     clickedElement.closest('.feed-shared-update-v2') ||
+                     clickedElement.closest('.occludable-update') ||
+                     clickedElement.closest('[data-urn*="activity"]');
+    if (mainPost) {
+      expandSeeMore(mainPost);
+    }
+
     // Wait a bit longer if reply context - to let the reply box appear
-    const delay = isReplyContext ? 400 : 100;
+    const delay = isReplyContext ? 400 : 200;
     await new Promise(resolve => setTimeout(resolve, delay));
-    
+
     // Find and save the target comment box AFTER any Reply button was clicked
     targetCommentBox = findClosestCommentBox(clickedElement);
-    
+
     const postData = await scrapePostData(clickedElement);
     if (postData) {
       currentPostData = postData;

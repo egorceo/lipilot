@@ -82,7 +82,7 @@ export function FloatingPanel({ postData, isScanning = false, onClose, onInsertC
   const [copiedHistoryId, setCopiedHistoryId] = useState<string | null>(null);
   const [includeServiceOffer, setIncludeServiceOffer] = useState(false);
   const [hasServiceDescription, setHasServiceDescription] = useState(false);
-  const [analyzeImage, setAnalyzeImage] = useState(false); // Default OFF to save tokens
+  const [analyzeImage, setAnalyzeImage] = useState(false); // Will auto-enable if image found
   const [imageAnalysisEnabled, setImageAnalysisEnabled] = useState(false);
   const [userConfig, setUserConfig] = useState<{
     enableEmojis: boolean;
@@ -111,6 +111,13 @@ export function FloatingPanel({ postData, isScanning = false, onClose, onInsertC
     checkConfiguration();
     loadHistory();
   }, []);
+
+  // Auto-enable image analysis when a post with an image is detected
+  useEffect(() => {
+    if (postData?.imageUrl && imageAnalysisEnabled) {
+      setAnalyzeImage(true);
+    }
+  }, [postData?.imageUrl, imageAnalysisEnabled]);
 
   const checkConfiguration = async () => {
     setIsCheckingConfig(true);
