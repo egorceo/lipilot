@@ -750,6 +750,16 @@ function extractCommentAuthorName(commentElement: Element): string {
       }
     }
 
+    // New LinkedIn: name may be in a <p> tag inside the link
+    const pTags = link.querySelectorAll('p');
+    for (const p of pTags) {
+      const name = p.textContent?.trim();
+      if (name && name.length >= 2 && name.length < 80 &&
+          !name.includes('•') && !name.includes('1st') && !name.includes('2nd') && !name.includes('3rd')) {
+        return name;
+      }
+    }
+
     const spans = link.querySelectorAll('span');
     for (const span of spans) {
       const name = span.textContent?.trim();
@@ -759,8 +769,13 @@ function extractCommentAuthorName(commentElement: Element): string {
       }
     }
 
-    const text = link.textContent?.trim()?.split('\n')[0]?.trim();
-    if (text && text.length >= 2 && text.length < 80 && !text.includes('•')) {
+    // Try full link text, but clean it up (split on • or newline, take first part)
+    let text = link.textContent?.trim()?.split('\n')[0]?.trim() || '';
+    // Split on bullet point and take just the name
+    if (text.includes('•')) {
+      text = text.split('•')[0].trim();
+    }
+    if (text && text.length >= 2 && text.length < 80) {
       return text;
     }
   }
@@ -863,7 +878,10 @@ function extractCommentData(commentElement: Element): CommentData | null {
     if (!content || content.length < 5) return null;
 
     // Check if this is a reply (nested comment)
-    const isReply = !!commentElement.closest('[class*="replies-list"]') ||
+    // New LinkedIn: replies don't have comment-actor-picture, parent comments do
+    const hasActorPicture = !!commentElement.querySelector('[data-view-name="comment-actor-picture"]');
+    const isReply = !hasActorPicture ||
+                    !!commentElement.closest('[class*="replies-list"]') ||
                     !!commentElement.parentElement?.closest('[class*="replies"]');
 
     return { authorName, authorHeadline: '', content, isReply };
@@ -875,10 +893,14 @@ function extractCommentData(commentElement: Element): CommentData | null {
 
 /**
  * Find comment elements within a post.
- * In new LinkedIn, comments appear as nested elements with Like/Reply buttons.
+ * In new LinkedIn, comments appear as nested elements with data-view-name="comment-container".
  */
 function findCommentElements(postElement: Element): Element[] {
-  // Strategy 1: Old selectors (still work on some pages)
+  // Strategy 1: New LinkedIn - find by data-view-name="comment-container"
+  const newComments = postElement.querySelectorAll('[data-view-name="comment-container"]');
+  if (newComments.length > 0) return Array.from(newComments);
+
+  // Strategy 2: Old selectors (still work on some pages)
   const oldComments = queryAllWithFallback(postElement, [
     '.comments-comment-item',
     '.comments-comment-entity',
@@ -886,26 +908,21 @@ function findCommentElements(postElement: Element): Element[] {
   ]);
   if (oldComments.length > 0) return oldComments;
 
-  // Strategy 2: New LinkedIn - find elements that have Reply buttons
-  // Comments typically have a Like button and a Reply button
-  const replyButtons = Array.from(postElement.querySelectorAll('button')).filter(btn => {
+  // Strategy 3: Fallback - find elements that have Reply buttons and walk up
+  const replyButtons = Array.from(postElement.querySelectorAll('button, [data-view-name="comment-reply"]')).filter(btn => {
     const text = btn.textContent?.trim();
-    return text === 'Reply';
+    return text === 'Reply' || btn.getAttribute('data-view-name') === 'comment-reply';
   });
 
   const commentElements: Element[] = [];
   const seen = new Set<Element>();
 
   for (const replyBtn of replyButtons) {
-    // Walk up to find the comment container
-    // A comment container usually includes: author avatar, name, text, and action buttons
     let container = replyBtn.parentElement;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       if (!container) break;
-      // Check if this container has profile links (author) AND the reply button
       const hasProfileLink = container.querySelector('a[href*="/in/"]');
-      const hasCommentary = container.querySelector('[data-view-name="feed-commentary"]');
-      if (hasProfileLink && (hasCommentary || container.textContent!.length > 20)) {
+      if (hasProfileLink && container.textContent!.length > 20) {
         if (!seen.has(container)) {
           seen.add(container);
           commentElements.push(container);
@@ -950,26 +967,40 @@ export function scrapeExistingComments(postElement: Element, limit: number = 5):
 /**
  * Detect if we're in a reply thread context.
  * Enhanced for new LinkedIn where replies may not have specific CSS classes.
+ *
+ * @param postElement The broad post area containing comments
+ * @param clickedCommentElement Optional: the specific comment-container where the AI button was clicked
  */
-export function detectReplyContext(postElement: Element): { isReply: boolean; parentComment: CommentData | null; threadParticipants: string[] } {
+export function detectReplyContext(postElement: Element, clickedCommentElement?: Element): { isReply: boolean; parentComment: CommentData | null; threadParticipants: string[] } {
   const activeCommentBox = findActiveCommentBox();
 
-  if (!activeCommentBox) {
+  // If we have a clicked comment element, we KNOW we're in reply mode
+  // (the AI button was inside a comment, and Reply was clicked)
+  const forcedReplyMode = !!clickedCommentElement;
+
+  if (!activeCommentBox && !forcedReplyMode) {
     return { isReply: false, parentComment: null, threadParticipants: [] };
   }
 
   // Check if the comment box is inside a replies section (old LinkedIn)
-  let repliesContainer = activeCommentBox.closest('[class*="replies-list"], [class*="replies"]');
+  let repliesContainer = activeCommentBox?.closest('[class*="replies-list"], [class*="replies"]') || null;
 
   // New LinkedIn: check if the comment box has a @mention (indicating reply)
-  const mentionInBox = activeCommentBox.querySelector('a[href*="/in/"], [data-mention]');
+  // LinkedIn now uses <span data-type="mention"> instead of <a href="/in/...">
+  const mentionInBox = activeCommentBox?.querySelector(
+    'a[href*="/in/"], [data-mention], span[data-type="mention"]'
+  ) || null;
+
+  // Also check for mention text in the comment box content
+  const boxText = activeCommentBox?.textContent?.trim() || '';
+  const hasMentionText = boxText.length > 0 && boxText !== 'Add a comment...' && boxText !== 'Add a comment…';
 
   // Also check if the comment box's aria-label/placeholder mentions "reply"
-  const ariaLabel = activeCommentBox.getAttribute('aria-label')?.toLowerCase() || '';
-  const ariaPlaceholder = activeCommentBox.getAttribute('aria-placeholder')?.toLowerCase() || '';
+  const ariaLabel = activeCommentBox?.getAttribute('aria-label')?.toLowerCase() || '';
+  const ariaPlaceholder = activeCommentBox?.getAttribute('aria-placeholder')?.toLowerCase() || '';
   const isReplyByAttribute = ariaLabel.includes('reply') || ariaPlaceholder.includes('reply');
 
-  if (!repliesContainer && !mentionInBox && !isReplyByAttribute) {
+  if (!forcedReplyMode && !repliesContainer && !mentionInBox && !hasMentionText && !isReplyByAttribute) {
     return { isReply: false, parentComment: null, threadParticipants: [] };
   }
 
@@ -979,8 +1010,47 @@ export function detectReplyContext(postElement: Element): { isReply: boolean; pa
   // Find the parent comment
   const commentElements = findCommentElements(postElement);
 
-  // Strategy 1: Look for the comment that contains the replies section
-  if (repliesContainer) {
+  // Strategy 0 (NEW): If we have the clicked comment element, extract it directly as the parent
+  // The clicked comment is the one the user wants to reply to
+  if (!parentComment && clickedCommentElement) {
+    parentComment = extractCommentData(clickedCommentElement);
+    if (parentComment) {
+      threadParticipants.push(parentComment.authorName);
+      console.log('[LinkedIn AI] Found parent comment from clicked element:', parentComment.authorName);
+    }
+
+    // Also check if the clicked comment is itself a reply (no actor picture = reply in new LinkedIn)
+    // If so, find the thread's original parent comment too
+    const isClickedCommentAReply = !clickedCommentElement.querySelector('[data-view-name="comment-actor-picture"]');
+    if (isClickedCommentAReply) {
+      // Walk up through siblings to find the parent comment (has actor picture)
+      const wrapper = clickedCommentElement.parentElement?.parentElement?.parentElement;
+      if (wrapper?.parentElement) {
+        const siblings = Array.from(wrapper.parentElement.children);
+        const myIndex = siblings.indexOf(wrapper);
+        // Walk backwards to find the parent comment
+        for (let i = myIndex - 1; i >= 0; i--) {
+          const sibling = siblings[i];
+          const sibComment = sibling.querySelector('[data-view-name="comment-container"]');
+          if (sibComment) {
+            const hasActorPic = !!sibComment.querySelector('[data-view-name="comment-actor-picture"]');
+            if (hasActorPic) {
+              // This is the parent comment of the thread
+              const threadParent = extractCommentData(sibComment);
+              if (threadParent && threadParent.authorName !== parentComment?.authorName) {
+                threadParticipants.push(threadParent.authorName);
+                console.log('[LinkedIn AI] Found thread parent:', threadParent.authorName);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Strategy 1: Look for the comment that contains the replies section (old LinkedIn)
+  if (!parentComment && repliesContainer) {
     for (const comment of commentElements) {
       if (comment.contains(repliesContainer)) {
         parentComment = extractCommentData(comment);
@@ -992,9 +1062,9 @@ export function detectReplyContext(postElement: Element): { isReply: boolean; pa
     }
   }
 
-  // Strategy 2: Find by @mention in the reply box
-  if (!parentComment && mentionInBox) {
-    const mentionName = mentionInBox.textContent?.trim()?.replace('@', '');
+  // Strategy 2: Find by @mention in the reply box (updated for new LinkedIn)
+  if (!parentComment && (mentionInBox || hasMentionText)) {
+    const mentionName = mentionInBox?.textContent?.trim()?.replace('@', '') || boxText;
     if (mentionName) {
       for (const comment of commentElements) {
         const data = extractCommentData(comment);
@@ -1008,7 +1078,7 @@ export function detectReplyContext(postElement: Element): { isReply: boolean; pa
   }
 
   // Strategy 3: The comment box is near a specific comment - find the closest one
-  if (!parentComment) {
+  if (!parentComment && activeCommentBox) {
     const boxRect = activeCommentBox.getBoundingClientRect();
     let closestComment: CommentData | null = null;
     let closestDist = Infinity;
@@ -1076,27 +1146,87 @@ function scrapeCurrentThread(postElement: Element): CommentData[] {
 
   if (!activeCommentBox) return comments;
 
+  // Old LinkedIn: replies are inside a replies-list container
   const repliesContainer = activeCommentBox.closest('[class*="replies-list"], [class*="replies"]');
-  if (!repliesContainer) return comments;
-
-  // Get parent comment
-  const commentElements = findCommentElements(postElement);
-  for (const comment of commentElements) {
-    if (comment.contains(repliesContainer)) {
-      const parentData = extractCommentData(comment);
-      if (parentData) {
-        comments.push({ ...parentData, isReply: false });
+  if (repliesContainer) {
+    // Get parent comment
+    const commentElements = findCommentElements(postElement);
+    for (const comment of commentElements) {
+      if (comment.contains(repliesContainer)) {
+        const parentData = extractCommentData(comment);
+        if (parentData) {
+          comments.push({ ...parentData, isReply: false });
+        }
+        break;
       }
-      break;
+    }
+
+    // Get replies in this thread
+    const replyElements = findCommentElements(repliesContainer as Element);
+    for (const reply of replyElements) {
+      const replyData = extractCommentData(reply);
+      if (replyData) {
+        comments.push({ ...replyData, isReply: true });
+      }
+    }
+    return comments;
+  }
+
+  // New LinkedIn: comments are flat siblings, replies lack comment-actor-picture
+  // Find the comment-container closest to the active comment box
+  const boxRect = activeCommentBox.getBoundingClientRect();
+  const allComments = postElement.querySelectorAll('[data-view-name="comment-container"]');
+
+  // Find the nearby comment (the one being replied to)
+  let targetComment: Element | null = null;
+  let minDist = Infinity;
+  for (const c of allComments) {
+    const rect = (c as HTMLElement).getBoundingClientRect();
+    const dist = Math.abs(rect.bottom - boxRect.top);
+    if (dist < minDist) {
+      minDist = dist;
+      targetComment = c;
     }
   }
 
-  // Get replies in this thread
-  const replyElements = findCommentElements(repliesContainer as Element);
-  for (const reply of replyElements) {
-    const replyData = extractCommentData(reply);
-    if (replyData) {
-      comments.push({ ...replyData, isReply: true });
+  if (!targetComment) return comments;
+
+  // Walk up to find the thread group (siblings in the parent)
+  const wrapper = targetComment.parentElement?.parentElement?.parentElement;
+  if (!wrapper?.parentElement) return comments;
+
+  const siblings = Array.from(wrapper.parentElement.children);
+  const myIndex = siblings.indexOf(wrapper);
+
+  // Walk backwards to find the parent comment (has actor picture)
+  let threadStartIndex = myIndex;
+  for (let i = myIndex; i >= 0; i--) {
+    const sib = siblings[i];
+    const sibComment = sib.querySelector('[data-view-name="comment-container"]');
+    if (sibComment) {
+      const hasActorPic = !!sibComment.querySelector('[data-view-name="comment-actor-picture"]');
+      if (hasActorPic) {
+        threadStartIndex = i;
+        const parentData = extractCommentData(sibComment);
+        if (parentData) {
+          comments.push({ ...parentData, isReply: false });
+        }
+        break;
+      }
+    }
+  }
+
+  // Collect all replies after the parent until the next parent comment or end
+  for (let i = threadStartIndex + 1; i < siblings.length; i++) {
+    const sib = siblings[i];
+    const sibComment = sib.querySelector('[data-view-name="comment-container"]');
+    if (sibComment) {
+      const hasActorPic = !!sibComment.querySelector('[data-view-name="comment-actor-picture"]');
+      if (hasActorPic) break; // Next parent comment - end of thread
+      const replyData = extractCommentData(sibComment);
+      if (replyData) {
+        comments.push({ ...replyData, isReply: true });
+      }
     }
   }
 
@@ -1106,14 +1236,36 @@ function scrapeCurrentThread(postElement: Element): CommentData[] {
 // ======================== Post Scraping ========================
 
 /**
- * Find the main post container (even if we clicked on a comment)
+ * Find the main post container (even if we clicked on a comment).
+ * In new LinkedIn, feed-full-update and comments are SIBLINGS inside a common parent,
+ * NOT nested (comments are outside feed-full-update).
  */
 function findMainPostContainer(element: Element): Element | null {
-  // Strategy 1: New LinkedIn
+  // Strategy 1: Direct - element is inside feed-full-update
   const newPost = element.closest('[data-view-name="feed-full-update"]');
   if (newPost) return newPost;
 
-  // Strategy 2: Old LinkedIn
+  // Strategy 2: New LinkedIn - element is inside a comment (sibling to feed-full-update)
+  // Walk up from the element to find a parent that has a feed-full-update as a child/descendant
+  let ancestor = element.parentElement;
+  for (let i = 0; i < 15; i++) {
+    if (!ancestor) break;
+    // Check if any direct child is a feed-full-update
+    const feedUpdate = ancestor.querySelector(':scope > [data-view-name="feed-full-update"]');
+    if (feedUpdate) return feedUpdate;
+    // Also check nested (some wrappers may exist)
+    const nestedFeedUpdate = ancestor.querySelector('[data-view-name="feed-full-update"]');
+    if (nestedFeedUpdate) {
+      // Make sure this is the right post (same feed item, not a different post)
+      // Verify the original element and feed-full-update share this ancestor
+      if (ancestor.contains(element) && ancestor.contains(nestedFeedUpdate)) {
+        return nestedFeedUpdate;
+      }
+    }
+    ancestor = ancestor.parentElement;
+  }
+
+  // Strategy 3: Old LinkedIn
   const oldSelectors = [
     '.feed-shared-update-v2',
     '.occludable-update',
@@ -1132,16 +1284,13 @@ function findMainPostContainer(element: Element): Element | null {
  * Check if the clicked element is inside a comment (not the main post action bar)
  */
 function isInsideComment(element: Element): boolean {
+  // Check new LinkedIn: inside a comment-container
+  const newComment = element.closest('[data-view-name="comment-container"]');
+  if (newComment) return true;
+
   // Check old selectors
   const oldComment = element.closest('.comments-comment-item, .comments-comment-entity, [class*="comments-comment-item"]');
   if (oldComment) return true;
-
-  // Check new LinkedIn: if a Reply button is a sibling, we're in a comment
-  const parent = element.parentElement;
-  if (parent) {
-    const replyBtn = Array.from(parent.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Reply');
-    if (replyBtn) return true;
-  }
 
   // Check if nearby area has Reply button (walk up a few levels)
   let current = element.parentElement;
@@ -1163,6 +1312,29 @@ function isInsideComment(element: Element): boolean {
 }
 
 /**
+ * Find the broad post area that includes both the post and its comments.
+ * In new LinkedIn, feed-full-update and comments are siblings, so we need the parent.
+ */
+function findBroadPostArea(postElement: Element, clickedElement: Element): Element {
+  // If clickedElement is inside the postElement, just use postElement
+  if (postElement.contains(clickedElement)) return postElement;
+
+  // New LinkedIn: find the common parent that holds both the post and comments
+  let ancestor = postElement.parentElement;
+  for (let i = 0; i < 5; i++) {
+    if (!ancestor) break;
+    // Check if this ancestor also contains comment-containers
+    const hasComments = ancestor.querySelector('[data-view-name="comment-container"]');
+    if (hasComments && ancestor.contains(postElement)) {
+      return ancestor;
+    }
+    ancestor = ancestor.parentElement;
+  }
+
+  return postElement;
+}
+
+/**
  * Scrape post data from a post element (enriched with thread context)
  */
 export async function scrapePostData(clickedElement: Element): Promise<EnrichedPostData | null> {
@@ -1176,11 +1348,11 @@ export async function scrapePostData(clickedElement: Element): Promise<EnrichedP
 
     const isReplyMode = isInsideComment(clickedElement);
 
-    // Extract author info
+    // Extract author info from the main post
     const authorName = extractAuthorName(mainPostContainer);
     const authorHeadline = extractAuthorHeadline(mainPostContainer);
 
-    // Expand "see more" and extract content
+    // Expand "see more" and extract content from the main post
     await expandSeeMoreAndWait(mainPostContainer);
     const postContent = extractPostContentSync(mainPostContainer);
 
@@ -1189,17 +1361,22 @@ export async function scrapePostData(clickedElement: Element): Promise<EnrichedP
       return null;
     }
 
-    // Extract image
+    // Extract image from the main post
     const imageUrl = extractPostImage(mainPostContainer);
 
-    // Build thread context
-    const existingComments = scrapeExistingComments(mainPostContainer, 5);
+    // For comments, we need the broader area that includes both post and comments
+    const broadArea = findBroadPostArea(mainPostContainer, clickedElement);
+
+    // Build thread context using the broad area (which includes comments)
+    const existingComments = scrapeExistingComments(broadArea, 5);
 
     let parentComment: CommentData | undefined;
     const threadParticipants: string[] = [];
 
     if (isReplyMode) {
-      const replyContext = detectReplyContext(mainPostContainer);
+      // Find the specific comment-container the user clicked on
+      const clickedCommentContainer = clickedElement.closest('[data-view-name="comment-container"]') || undefined;
+      const replyContext = detectReplyContext(broadArea, clickedCommentContainer);
       parentComment = replyContext.parentComment || undefined;
       threadParticipants.push(...replyContext.threadParticipants);
     }

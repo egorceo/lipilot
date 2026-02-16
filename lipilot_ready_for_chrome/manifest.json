@@ -14,13 +14,17 @@
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
-    "service_worker": "src/background/index.ts",
+    "service_worker": "service-worker-loader.js",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/*"],
-      "js": ["src/content/index.tsx"],
+      "js": [
+        "assets/index.tsx-loader-czxD00kJ.js"
+      ],
+      "matches": [
+        "https://www.linkedin.com/*"
+      ],
       "css": [],
       "all_frames": true
     }
@@ -44,6 +48,18 @@
     },
     "default_title": "LiPilot",
     "default_popup": "popup.html"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*"
+      ],
+      "resources": [
+        "assets/client-D7f9BLy3.js",
+        "assets/storage-BROYPw1S.js",
+        "assets/index.tsx-CM7pHYCL.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
 }
-

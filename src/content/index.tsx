@@ -41,6 +41,8 @@ const contentStyles = `
     transition: all 0.2s ease;
     box-shadow: 0 2px 8px rgba(10, 102, 194, 0.3);
     margin-left: 8px;
+    align-self: center;
+    flex-shrink: 0;
   }
   
   .lai-ai-button:hover {
@@ -135,29 +137,30 @@ const contentStyles = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #0a66c2 0%, #0077b5 100%);
+    background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
     border: none;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 2px 6px rgba(10, 102, 194, 0.25);
+    box-shadow: 0 2px 6px rgba(124, 58, 237, 0.3);
     margin: 0 4px;
     flex-shrink: 0;
     vertical-align: middle;
+    align-self: center;
   }
-  
+
   .lai-messaging-ai-button:hover {
     transform: scale(1.1);
-    box-shadow: 0 3px 10px rgba(10, 102, 194, 0.4);
-    background: linear-gradient(135deg, #004182 0%, #0066a2 100%);
+    box-shadow: 0 3px 10px rgba(124, 58, 237, 0.4);
+    background: linear-gradient(135deg, #6d28d9 0%, #9333ea 100%);
   }
-  
+
   .lai-messaging-ai-button:active {
     transform: scale(0.95);
   }
-  
+
   .lai-messaging-ai-button svg {
     width: 16px;
     height: 16px;
@@ -179,6 +182,7 @@ const contentStyles = `
     box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
     margin: 0 4px;
     flex-shrink: 0;
+    align-self: center;
   }
   
   .lai-post-sparkle-button:hover {
@@ -424,11 +428,26 @@ function openPanelWithScanning(clickedElement: Element, isReplyContext: boolean 
   // Scrape the data asynchronously (this now expands "see more" and waits)
   (async () => {
     // First, immediately expand "see more" to get full post text
-    // Find the main post container
-    const mainPost = clickedElement.closest('[data-view-name="feed-full-update"]') ||
-                     clickedElement.closest('.feed-shared-update-v2') ||
-                     clickedElement.closest('.occludable-update') ||
-                     clickedElement.closest('[data-urn*="activity"]');
+    // Find the main post container (may be a sibling in new LinkedIn, not an ancestor)
+    let mainPost = clickedElement.closest('[data-view-name="feed-full-update"]') ||
+                   clickedElement.closest('.feed-shared-update-v2') ||
+                   clickedElement.closest('.occludable-update') ||
+                   clickedElement.closest('[data-urn*="activity"]');
+
+    // New LinkedIn: if clicked from a comment, feed-full-update is a sibling not ancestor
+    if (!mainPost) {
+      let ancestor: Element | null = clickedElement.parentElement;
+      for (let i = 0; i < 15; i++) {
+        if (!ancestor) break;
+        const fu = ancestor.querySelector('[data-view-name="feed-full-update"]');
+        if (fu) {
+          mainPost = fu;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+    }
+
     if (mainPost) {
       expandSeeMore(mainPost);
     }
@@ -579,12 +598,13 @@ function injectAIButtons() {
 
     if (socialBar) {
       // Make sure this social bar is NOT inside a comment
-      // For new LinkedIn: check if there's a Reply button nearby (comments have Reply, main post doesn't)
+      // For new LinkedIn: check if inside a comment-container or if there's a Reply button nearby
+      const isInsideNewComment = socialBar.closest('[data-view-name="comment-container"]');
       const hasReplyButton = Array.from(socialBar.querySelectorAll('button')).some(
         btn => btn.textContent?.trim() === 'Reply'
       );
       const isInsideOldComment = socialBar.closest('.comments-comment-item, .comments-comment-entity, [class*="comments-comment-item"], .comments-comments-list');
-      if (isInsideOldComment || hasReplyButton) return; // Skip - will be handled by injectCommentButtons
+      if (isInsideNewComment || isInsideOldComment || hasReplyButton) return; // Skip - will be handled by injectCommentButtons
 
       // Check if button already exists in this action bar
       if (!socialBar.querySelector('.lai-ai-button')) {
@@ -604,7 +624,15 @@ function injectAIButtons() {
 
 // Click the Reply button to open the reply input
 function clickReplyButton(commentElement: Element): void {
-  // Strategy 1: Find by text content (works for both old and new LinkedIn)
+  // Strategy 1: New LinkedIn - find by data-view-name="comment-reply"
+  const commentReplyBtn = commentElement.querySelector('[data-view-name="comment-reply"]');
+  if (commentReplyBtn) {
+    (commentReplyBtn as HTMLElement).click();
+    console.log('[LinkedIn AI] Clicked Reply button (by data-view-name)');
+    return;
+  }
+
+  // Strategy 2: Find by text content (works for both old and new LinkedIn)
   const buttons = commentElement.querySelectorAll('button, span[role="button"]');
   for (const btn of buttons) {
     if (btn.textContent?.trim() === 'Reply') {
@@ -614,7 +642,7 @@ function clickReplyButton(commentElement: Element): void {
     }
   }
 
-  // Strategy 2: Old LinkedIn selectors
+  // Strategy 3: Old LinkedIn selectors
   const replyButton = commentElement.querySelector(
     'button[aria-label*="Reply"], ' +
     'button[aria-label*="reply"], ' +
@@ -630,7 +658,18 @@ function clickReplyButton(commentElement: Element): void {
 
 // Inject AI buttons into comment action bars
 function injectCommentButtons(postContainer: Element) {
-  // Strategy 1: Old LinkedIn selectors
+  // Strategy 1: New LinkedIn - find comments by data-view-name="comment-container"
+  const newComments = postContainer.querySelectorAll('[data-view-name="comment-container"]');
+  if (newComments.length > 0) {
+    newComments.forEach((comment) => {
+      const replyBtn = comment.querySelector('[data-view-name="comment-reply"]') ||
+                       Array.from(comment.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Reply');
+      injectButtonIntoComment(comment, replyBtn || undefined);
+    });
+    return;
+  }
+
+  // Strategy 2: Old LinkedIn selectors
   const oldComments = postContainer.querySelectorAll(
     '.comments-comment-item, .comments-comment-entity, article[class*="comments-comment"]'
   );
@@ -642,7 +681,7 @@ function injectCommentButtons(postContainer: Element) {
     return;
   }
 
-  // Strategy 2: New LinkedIn - find comments by Reply buttons
+  // Strategy 3: Fallback - find comments by Reply buttons and walk up
   const replyButtons = Array.from(postContainer.querySelectorAll('button')).filter(btn => {
     return btn.textContent?.trim() === 'Reply';
   });
@@ -650,11 +689,10 @@ function injectCommentButtons(postContainer: Element) {
   for (const replyBtn of replyButtons) {
     // Find the comment container (walk up to find element with profile link)
     let commentElement: Element | null = replyBtn.parentElement;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       if (!commentElement) break;
       const hasProfileLink = commentElement.querySelector('a[href*="/in/"]');
-      const hasCommentary = commentElement.querySelector('[data-view-name="feed-commentary"]');
-      if (hasProfileLink && (hasCommentary || commentElement.textContent!.length > 20)) {
+      if (hasProfileLink && commentElement.textContent!.length > 20) {
         injectButtonIntoComment(commentElement, replyBtn);
         break;
       }
@@ -674,10 +712,30 @@ function injectButtonIntoComment(comment: Element, replyBtn?: Element) {
   // Find the action bar - the container that holds Like/Reply buttons
   let commentActionBar: Element | null = null;
 
-  // Strategy 1: Find Reply button's parent (this is the action bar)
-  if (replyBtn) {
-    commentActionBar = replyBtn.parentElement;
-    // Walk up if needed to find a container that has both Like and Reply
+  // Strategy 1: New LinkedIn - find via data-view-name="comment-reply" button
+  const commentReplyBtn = replyBtn || comment.querySelector('[data-view-name="comment-reply"]');
+  if (commentReplyBtn) {
+    // The action bar is the parent that contains both the Like area and Reply
+    // Structure: actionBar > [Like div] [HR] [Reply div]
+    // Reply button is inside a wrapper div, so we need parent.parent
+    let candidate = commentReplyBtn.parentElement;
+    for (let i = 0; i < 4; i++) {
+      if (!candidate) break;
+      // Check if this container has multiple children (Like + separator + Reply)
+      if (candidate.children.length >= 2) {
+        // Verify it has both reaction-related and reply-related content
+        const hasReaction = candidate.querySelector('button') !== null;
+        if (hasReaction) {
+          commentActionBar = candidate;
+          break;
+        }
+      }
+      candidate = candidate.parentElement;
+    }
+  }
+
+  // Strategy 2: Find Reply button's parent with Like + Reply
+  if (!commentActionBar && replyBtn) {
     let candidate = replyBtn.parentElement;
     for (let i = 0; i < 3; i++) {
       if (!candidate) break;
@@ -697,7 +755,7 @@ function injectButtonIntoComment(comment: Element, replyBtn?: Element) {
     }
   }
 
-  // Strategy 2: Old LinkedIn selectors
+  // Strategy 3: Old LinkedIn selectors
   if (!commentActionBar) {
     const actionBarSelectors = [
       '.comments-comment-social-bar',
@@ -710,7 +768,7 @@ function injectButtonIntoComment(comment: Element, replyBtn?: Element) {
     }
   }
 
-  // Strategy 3: Find by Like/Reply button presence
+  // Strategy 4: Find by Like/Reply button presence
   if (!commentActionBar) {
     const buttons = comment.querySelectorAll('button');
     for (const btn of buttons) {
@@ -737,6 +795,7 @@ function injectButtonIntoComment(comment: Element, replyBtn?: Element) {
       button.style.width = '28px';
       button.style.height = '28px';
       button.style.marginLeft = '4px';
+      button.style.alignSelf = 'center';
       commentActionBar.appendChild(button);
     }
   }
@@ -750,6 +809,16 @@ function injectButtonsIntoNewComments() {
   );
   posts.forEach((post) => {
     injectCommentButtons(post);
+  });
+
+  // Also directly find any unprocessed comment-containers
+  const commentContainers = document.querySelectorAll('[data-view-name="comment-container"]');
+  commentContainers.forEach((comment) => {
+    const htmlComment = comment as HTMLElement;
+    if (htmlComment.dataset.laiCommentProcessed) return;
+    const replyBtn = comment.querySelector('[data-view-name="comment-reply"]') ||
+                     Array.from(comment.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Reply');
+    injectButtonIntoComment(comment, replyBtn || undefined);
   });
 }
 
@@ -776,19 +845,42 @@ function createSparkleButton(): HTMLButtonElement {
   return button;
 }
 
-// Inject Sparkle button into post creation modal
+// Inject Sparkle button into post creation area (feed "Start a post" or post modal)
 function injectPostAssistantButton() {
-  // First, try to find modal
-  const modal = findPostModal();
-  
   // Also check if button already exists anywhere on page
   if (document.querySelector('.lai-post-sparkle-button')) {
     return;
   }
 
-  // Try to find toolbar - first in modal, then in document
+  // Strategy 1: New LinkedIn feed - find the "Start a post" input area
+  // Structure: [avatar link] [Start a post text] → inject button at end of this row
+  const allElements = document.querySelectorAll('div');
+  for (const el of allElements) {
+    // Find the row that contains "Start a post" text and an avatar
+    if (el.children.length === 2) {
+      const firstChild = el.children[0];
+      const secondChild = el.children[1];
+      // First child is an <a> (avatar), second child contains "Start a post"
+      if (firstChild.tagName === 'A' && secondChild.textContent?.trim() === 'Start a post') {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 200 && rect.height > 30) {
+          const button = createSparkleButton();
+          // Ensure it's centered vertically in the row
+          button.style.alignSelf = 'center';
+          button.style.marginLeft = '8px';
+          button.style.marginRight = '4px';
+          el.appendChild(button);
+          console.log('[LinkedIn AI] Post Assistant button injected into Start a post row');
+          return;
+        }
+      }
+    }
+  }
+
+  // Strategy 2: Post modal - try to find toolbar
+  const modal = findPostModal();
   let toolbar = findPostToolbar();
-  
+
   // If no toolbar found in modal, try searching in document
   if (!toolbar) {
     const toolbarSelectors = [
@@ -823,14 +915,13 @@ function injectPostAssistantButton() {
     return;
   }
 
-  // Fallback: try to find editor and inject near it
+  // Strategy 3: Fallback - try to find editor and inject near it
   const editor = findPostEditor();
   if (editor && editor.parentElement) {
     // Try to find a container with buttons/icons near the editor
     let container = editor.parentElement;
     for (let i = 0; i < 3; i++) {
       if (container) {
-        // Look for a div with buttons or icons
         const buttonContainer = container.querySelector('[class*="toolbar"], [class*="footer"], [class*="actions"], [class*="button"]');
         if (buttonContainer) {
           const button = createSparkleButton();
@@ -841,8 +932,7 @@ function injectPostAssistantButton() {
         container = container.parentElement;
       }
     }
-    
-    // Last resort: insert after editor's parent
+
     if (editor.parentElement) {
       const button = createSparkleButton();
       editor.parentElement.insertBefore(button, editor.nextSibling);
@@ -851,7 +941,7 @@ function injectPostAssistantButton() {
     }
   }
 
-  // If modal exists but no toolbar found, try to inject at the end of modal
+  // Strategy 4: If modal exists but no toolbar found, inject as absolute positioned
   if (modal) {
     const button = createSparkleButton();
     button.style.position = 'absolute';
@@ -869,50 +959,58 @@ function injectMessagingButton() {
   const footerSelectors = [
     '.msg-form__footer',
     '.msg-form__left-actions',
+    '.msg-form__right-actions',
     '.msg-form__content-container',
     '.msg-form',
   ];
-  
+
   let footerContainer: Element | null = null;
   for (const selector of footerSelectors) {
     footerContainer = document.querySelector(selector);
     if (footerContainer) break;
   }
-  
+
   if (!footerContainer) {
     console.log('[LinkedIn AI] Message form footer not found');
     return;
   }
-  
-  // Check if already injected anywhere on the page
+
+  // Check if already injected anywhere on the page/frame
   if (document.querySelector('.lai-messaging-ai-button')) return;
-  
+
   // Create the AI button for messaging
   const button = document.createElement('button');
   button.className = 'lai-messaging-ai-button';
   button.type = 'button';
   button.title = 'AI Reply Assistant';
   button.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
     </svg>
   `;
-  
+
   button.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
     openMessagingPanel();
   });
-  
-  // Try to find the left actions area (where photo/attach icons are)
+
+  // Try to find the left actions area (where photo/attach/emoji icons are) - preferred
   const leftActions = document.querySelector('.msg-form__left-actions');
   if (leftActions) {
-    // Insert as first child of left actions
-    leftActions.insertBefore(button, leftActions.firstChild);
+    leftActions.appendChild(button);
     console.log('[LinkedIn AI] Messaging AI button injected into left actions');
     return;
   }
-  
+
+  // Try to find the right actions area (where send button is)
+  const rightActions = document.querySelector('.msg-form__right-actions');
+  if (rightActions) {
+    rightActions.insertBefore(button, rightActions.firstChild);
+    console.log('[LinkedIn AI] Messaging AI button injected into right actions');
+    return;
+  }
+
   // Try to find the footer and insert there
   const footer = document.querySelector('.msg-form__footer');
   if (footer) {
@@ -920,7 +1018,7 @@ function injectMessagingButton() {
     console.log('[LinkedIn AI] Messaging AI button injected into footer');
     return;
   }
-  
+
   // Fallback: find send button area and put before it
   const sendButton = document.querySelector('.msg-form__send-button, .msg-form__send-btn, button[type="submit"][class*="send"]');
   if (sendButton && sendButton.parentElement) {
@@ -928,35 +1026,58 @@ function injectMessagingButton() {
     console.log('[LinkedIn AI] Messaging AI button injected before send button');
     return;
   }
-  
+
+  // Last resort: append to the form container
+  if (footerContainer) {
+    footerContainer.appendChild(button);
+    console.log('[LinkedIn AI] Messaging AI button appended to form container');
+    return;
+  }
+
   console.log('[LinkedIn AI] Could not find suitable location for messaging button');
 }
 
 
+// Check if we're running inside an iframe
+function isInIframe(): boolean {
+  try {
+    return window !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 // Initialize
 function init() {
   injectStyles();
-  
+
+  const inIframe = isInIframe();
+
   // Determine page type and inject appropriate buttons
   if (isMessagingPage()) {
     injectMessagingButton();
-  } else {
+  } else if (!inIframe) {
+    // Only inject feed buttons in the top frame (not in the /preload/ iframe)
     injectAIButtons();
   }
 
-  // Always try to inject post assistant button (for post creation modal)
-  injectPostAssistantButton();
-  
-  // More frequent check for post modal (it appears dynamically)
+  // Only try post assistant button in top frame AND not on messaging page
+  if (!inIframe && !isMessagingPage()) {
+    injectPostAssistantButton();
+  }
+
+  // More frequent check for post modal (it appears dynamically) - only in top frame, not messaging
   let postModalCheckInterval: ReturnType<typeof setInterval> | null = null;
-  const checkPostModal = () => {
-    if (findPostModal() || findPostEditor()) {
-      injectPostAssistantButton();
-    }
-  };
-  
-  // Check every 500ms for post modal
-  postModalCheckInterval = setInterval(checkPostModal, 500);
+  if (!inIframe && !isMessagingPage()) {
+    const checkPostModal = () => {
+      if (findPostModal() || findPostEditor()) {
+        injectPostAssistantButton();
+      }
+    };
+
+    // Check every 500ms for post modal
+    postModalCheckInterval = setInterval(checkPostModal, 500);
+  }
   
   // Debounce function to prevent too many injections
   let injectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -965,12 +1086,14 @@ function init() {
     injectTimeout = setTimeout(() => {
       if (isMessagingPage()) {
         injectMessagingButton();
-      } else {
+      } else if (!inIframe) {
         injectAIButtons();
         injectButtonsIntoNewComments();
       }
-      // Always check for post modal
-      injectPostAssistantButton();
+      // Only check for post modal in top frame, not on messaging
+      if (!inIframe && !isMessagingPage()) {
+        injectPostAssistantButton();
+      }
     }, 300);
   };
   
@@ -984,8 +1107,11 @@ function init() {
           if (node instanceof Element) {
             // New LinkedIn: check for data-view-name attributes
             if (node.getAttribute?.('data-view-name')?.includes('feed') ||
+                node.getAttribute?.('data-view-name') === 'comment-container' ||
                 node.querySelector?.('[data-view-name="feed-full-update"]') ||
                 node.querySelector?.('[data-view-name="feed-comment-button"]') ||
+                node.querySelector?.('[data-view-name="comment-container"]') ||
+                node.querySelector?.('[data-view-name="comment-reply"]') ||
                 node.querySelector?.('button')) {
               shouldInject = true;
             }
@@ -1008,7 +1134,7 @@ function init() {
     if (shouldInject) {
       debouncedInject();
     }
-    if (shouldCheckPostModal) {
+    if (shouldCheckPostModal && !inIframe) {
       setTimeout(() => injectPostAssistantButton(), 100);
       setTimeout(() => injectPostAssistantButton(), 500);
       setTimeout(() => injectPostAssistantButton(), 1000);
@@ -1028,20 +1154,22 @@ if (document.readyState === 'loading') {
   init();
 }
 
-// Re-inject on navigation (LinkedIn is a SPA)
-let lastUrl = location.href;
-new MutationObserver(() => {
-  if (location.href !== lastUrl) {
-    lastUrl = location.href;
-    setTimeout(() => {
-      if (isMessagingPage()) {
-        injectMessagingButton();
-      } else {
-        injectAIButtons();
-      }
-    }, 1000);
-  }
-}).observe(document, { subtree: true, childList: true });
+// Re-inject on navigation (LinkedIn is a SPA) - only in top frame
+if (!isInIframe()) {
+  let lastUrl = location.href;
+  new MutationObserver(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      setTimeout(() => {
+        if (isMessagingPage()) {
+          injectMessagingButton();
+        } else {
+          injectAIButtons();
+        }
+      }, 1000);
+    }
+  }).observe(document, { subtree: true, childList: true });
+}
 
 // Panel styles
 function getPanelStyles(): string {

@@ -9,6 +9,7 @@ export default defineConfig({
     crx({ manifest }),
   ],
   build: {
+    outDir: 'lipilot_ready_for_chrome',
     rollupOptions: {
       input: {
         options: 'options.html',

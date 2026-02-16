@@ -104,10 +104,23 @@ function queryAllWithFallback(container: Element | Document, selectors: readonly
 }
 
 /**
- * Check if we're on the messaging page
+ * Check if we're on the messaging page.
+ * This can be the main messaging page OR inside an iframe that contains messaging UI.
  */
 export function isMessagingPage(): boolean {
-  return window.location.pathname.includes('/messaging');
+  // Direct check for messaging URL
+  if (window.location.pathname.includes('/messaging')) return true;
+
+  // Inside iframe (e.g., /preload/) - check if messaging DOM elements exist
+  if (window !== window.top) {
+    // We're in an iframe - check for messaging form elements
+    const hasMessagingForm = !!document.querySelector(
+      '.msg-form, .msg-form__contenteditable, [class*="msg-form"], .msg-overlay-bubble-header'
+    );
+    if (hasMessagingForm) return true;
+  }
+
+  return false;
 }
 
 /**
